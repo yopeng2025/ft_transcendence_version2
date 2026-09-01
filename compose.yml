@@ -1,0 +1,82 @@
+services:
+    frontend:
+        build: 
+            context: ./frontend
+            dockerfile: Dockerfile
+        networks:
+            - client-side
+    backend:
+        build:
+            context: ./backend
+            dockerfile: Dockerfile
+        networks:
+            - client-side
+            - server-side
+        environment:
+            - BACKEND_USER=${BACKEND_USER}
+            - POSTGRES_DB=${POSTGRES_DB}
+            - FORTYTWO_REDIRECT_URI=${FORTYTWO_REDIRECT_URI}
+            - FRONTEND_OAUTH_URI=${FRONTEND_OAUTH_URI}
+            - DOMAIN=${DOMAIN}
+            - TWO_FACTOR_URL=${TWO_FACTOR_URL}
+        secrets:
+            - backend_pw
+            - jwt_secret
+            - fortytwo_client_id
+            - fortytwo_client_secret
+        depends_on:
+            db:
+                condition: service_healthy
+    proxy:
+        build:
+            context: ./proxy
+            dockerfile: Dockerfile
+        networks:
+            - client-side
+        depends_on:
+            - frontend
+            - backend
+
+    db:
+        image: postgres:${POSTGRES_VERSION:-18-alpine}
+        networks:
+            - server-side
+        environment:
+            - POSTGRES_DB=${POSTGRES_DB}
+            - POSTGRES_USER=${POSTGRES_USER}
+            - POSTGRES_PASSWORD_FILE=/run/secrets/postgres_root_pw
+            - BACKEND_USER=${BACKEND_USER}
+            - BACKEND_PW_FILE=/run/secrets/backend_pw
+        volumes:                                                       # +++ /data
+            - postgres_data:/var/lib/postresql/data                    # named volume for podman to manage volume 
+            - ./database/init.sh:/docker-entrypoint-initdb.d/init.sh:Z # Z flag is for SELinux
+        secrets:
+            - backend_pw
+            - postgres_root_pw
+        healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+            interval: 5s
+            timeout: 5s
+            retries: 10
+
+volumes:
+    postgres_data:
+
+networks:
+    client-side:
+        driver: bridge
+    server-side:
+        driver: bridge
+
+secrets:
+    backend_pw: 
+        file: ./secrets/backend_pw.txt
+    postgres_root_pw:
+        file: ./secrets/postgres_root_pw.txt
+    jwt_secret:
+        file: ./secrets/jwt_secret.txt
+    fortytwo_client_id:
+        file: ./secrets/fortytwo_client_id.txt
+    fortytwo_client_secret:
+        file: ./secrets/fortytwo_client_secret.txt
+
